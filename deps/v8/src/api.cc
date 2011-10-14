@@ -3677,12 +3677,32 @@ int String::WriteUtf8(char* buffer,
   // Encode the first K - 3 bytes directly into the buffer since we
   // know there's room for them.  If no capacity is given we copy all
   // of them here.
-  int fast_end = capacity - (unibrow::Utf8::kMaxEncodedSize - 1);
+  int fast_end = capacity == -1 ? unibrow::Utf8::kMaxEncodedSize * len
+      : capacity - (unibrow::Utf8::kMaxEncodedSize - 1);
   int i;
   int pos = 0;
-  int nchars = 0;
-  for (i = 0; i < len && (capacity == -1 || pos < fast_end); i++) {
-    i::uc32 c = write_input_buffer.GetNext();
+  int nchars = 0;  // in code units
+  const i::uc32 NONE = -1;  // OxFFFFFFFF is not a Unicode codepoint
+  i::uc32 lookahead = NONE;
+
+  for (i = 0; i < len && pos < fast_end; i++) {
+    // Get the current character fromeither the input buffer or the lookahead
+    i::uc32 c = lookahead == NONE ? write_input_buffer.GetNext() : lookahead;
+    lookahead = NONE;
+    // Is it a valid surrogate pair? that is, wheter or not the three following
+    // conditions are met : the current char is a high-surrogate char; there is
+    // a next char, and if that next char is indeed a low-surrogate char
+    // NB: lookahead might be filled if the next char is not a low-surrogate
+    if (unibrow::SurrogatePair::IsHigh(c) && i + 1 < len &&
+        unibrow::SurrogatePair::IsLow(
+            lookahead = write_input_buffer.GetNext())) {
+      // Compose the surrogate pair into a 32-bit-wide character
+      c = unibrow::SurrogatePair::Compose(c, lookahead);
+      lookahead = NONE;  // we did use the lookahead
+      nchars++;  // we have treated one additional code unit
+      i++;  // skip the next char
+    }
+    // Encode the Unicode codepoint to Utf-8 byte-sequences
     int written = unibrow::Utf8::Encode(buffer + pos, c);
     pos += written;
     nchars++;
@@ -3693,13 +3713,28 @@ int String::WriteUtf8(char* buffer,
     // buffer.
     char intermediate[unibrow::Utf8::kMaxEncodedSize];
     for (; i < len && pos < capacity; i++) {
-      i::uc32 c = write_input_buffer.GetNext();
+      int ncodeunits = 1;  // Number of code units handled *in the iteration*
+      // Get the current character from either the input buffer or the lookahead
+      i::uc32 c = lookahead == NONE ? write_input_buffer.GetNext() : lookahead;
+      lookahead = NONE;
+      // Is it a valid surrogate pair? See above
+      // NB: lookahead might be filled if the next char is not a low-surrogate
+      if (unibrow::SurrogatePair::IsHigh(c) && i + 1 < len &&
+          unibrow::SurrogatePair::IsLow(
+              lookahead = write_input_buffer.GetNext())) {
+        // Compose the surrogate pair into a 32-bit-wide character
+        c = unibrow::SurrogatePair::Compose(c, lookahead);
+        lookahead = NONE;
+        ncodeunits = 2;  // two code units
+        i++;  // skip the next char
+      }
+      // Encode the codepoint in an intermediate buffer and copy it if possible
       int written = unibrow::Utf8::Encode(intermediate, c);
       if (pos + written <= capacity) {
         for (int j = 0; j < written; j++)
           buffer[pos + j] = intermediate[j];
         pos += written;
-        nchars++;
+        nchars += ncodeunits;
       } else {
         // We've reached the end of the buffer
         break;

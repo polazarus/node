@@ -5035,8 +5035,23 @@ int String::Utf8Length() {
       heap->isolate()->objects_string_input_buffer());
   buffer->Reset(0, this);
   int result = 0;
-  while (buffer->has_more())
-    result += unibrow::Utf8::Length(buffer->GetNext());
+  const uc32 NONE = -1;
+  uc32 lookahead = NONE;
+  while (lookahead != NONE || buffer->has_more()) {
+    // Get the current character (or rather code unit) either from the buffer
+    // or from the lookahead
+    uc32 ch = lookahead == NONE ? buffer->GetNext() : lookahead;
+    lookahead = NONE;
+    // Is it a surrogate pair?
+    // NB: need a lookahead to check the second code unit
+    if (unibrow::SurrogatePair::IsHigh(ch) && buffer->has_more()
+      && unibrow::SurrogatePair::IsLow(lookahead = buffer->GetNext())) {
+      ch = unibrow::SurrogatePair::Compose(ch, lookahead);
+      lookahead = NONE;
+    }
+    result += unibrow::Utf8::Length(ch);
+  }
+
   return result;
 }
 

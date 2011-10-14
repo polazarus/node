@@ -233,6 +233,28 @@ Utf8InputBuffer<s>::Utf8InputBuffer(const char* data, unsigned length)
                                                                     length)) {
 }
 
+bool SurrogatePair::IsHigh(uchar c) {
+  return c >= kFirstHi && c <= kLastHi;
+}
+
+bool SurrogatePair::IsLow(uchar c) {
+  return c >= kFirstLo && c <= kLastLo;
+}
+
+uchar SurrogatePair::Compose(uchar hi, uchar lo) {
+  return 0x10000 + (((hi & 0x3FF) << 10) | (lo & 0x3FF));
+}
+
+bool SurrogatePair::MayDecompose(uchar r) {
+  return r > 0xFFFF && r < 0x10FFFF;
+}
+
+void SurrogatePair::Decompose(uchar r, uchar* hi, uchar* lo) {
+  r = r-0x10000;
+  *hi = kFirstHi | ((r >> 10) & 0x3FF);
+  *lo = kFirstLo | (r & 0x3FF);
+}
+
 }  // namespace unibrow
 
 #endif  // V8_UNICODE_INL_H_
