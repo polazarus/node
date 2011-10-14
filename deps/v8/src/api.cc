@@ -3680,9 +3680,24 @@ int String::WriteUtf8(char* buffer,
   int fast_end = capacity - (unibrow::Utf8::kMaxEncodedSize - 1);
   int i;
   int pos = 0;
-  int nchars = 0;
+  int nchars = 0;  // in code units
+  const unibrow::uchar none = -1;
+  unibrow::uchar peeked = -1;
+
   for (i = 0; i < len && (capacity == -1 || pos < fast_end); i++) {
-    i::uc32 c = write_input_buffer.GetNext();
+    i::uc32 c;
+
+    c = peeked == none ? write_input_buffer.GetNext() : peeked;
+    peeked = none;
+
+    if (unibrow::SurrogatePair::IsHigh(c) && i + 1 < len &&
+      unibrow::SurrogatePair::IsLow(peeked = write_input_buffer.GetNext())) {
+      c = unibrow::SurrogatePair::Compose(c, peeked);
+      peeked = none;
+      nchars++;  // two code units
+      i++;
+    }
+
     int written = unibrow::Utf8::Encode(buffer + pos, c);
     pos += written;
     nchars++;
@@ -3693,13 +3708,26 @@ int String::WriteUtf8(char* buffer,
     // buffer.
     char intermediate[unibrow::Utf8::kMaxEncodedSize];
     for (; i < len && pos < capacity; i++) {
-      i::uc32 c = write_input_buffer.GetNext();
+      i::uc32 c;
+      int charlen = 1;
+
+      c = peeked == none ? write_input_buffer.GetNext() : peeked;
+      peeked = none;
+
+      if (unibrow::SurrogatePair::IsHigh(c) && i + 1 < len &&
+        unibrow::SurrogatePair::IsLow(peeked = write_input_buffer.GetNext())) {
+        c = unibrow::SurrogatePair::Compose(c, peeked);
+        peeked = none;
+        charlen = 2;  // two code units
+        i++;
+      }
+
       int written = unibrow::Utf8::Encode(intermediate, c);
       if (pos + written <= capacity) {
         for (int j = 0; j < written; j++)
           buffer[pos + j] = intermediate[j];
         pos += written;
-        nchars++;
+        nchars += charlen;
       } else {
         // We've reached the end of the buffer
         break;

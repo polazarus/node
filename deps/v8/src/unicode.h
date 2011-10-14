@@ -275,6 +275,20 @@ struct CanonicalizationRange {
                      bool* allow_caching_ptr);
 };
 
+struct SurrogatePair {
+  static const uchar kFirstHi = 0xD800;
+  static const uchar kLastHi = 0xDBFF;
+  static const uchar kFirstLo = 0xDC00;
+  static const uchar kLastLo = 0xDFFF;
+
+  inline static bool IsLow(uchar c);
+  inline static bool IsHigh(uchar c);
+
+  inline static uchar Compose(uchar hi, uchar lo);
+  inline static bool MayDecompose(uchar ch);
+  inline static void Decompose(uchar ch, uchar* hi, uchar* lo);
+};
+
 }  // namespace unibrow
 
 #endif  // V8_UNICODE_H_

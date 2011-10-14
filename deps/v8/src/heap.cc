@@ -3692,8 +3692,6 @@ MaybeObject* Heap::AllocateStringFromAscii(Vector<const char> string,
 
 MaybeObject* Heap::AllocateStringFromUtf8Slow(Vector<const char> string,
                                               PretenureFlag pretenure) {
-  // V8 only supports characters in the Basic Multilingual Plane.
-  const uc32 kMaxSupportedChar = 0xFFFF;
   // Count the number of characters in the UTF-8 string and check if
   // it is an ASCII string.
   Access<UnicodeCache::Utf8Decoder>
@@ -3701,7 +3699,11 @@ MaybeObject* Heap::AllocateStringFromUtf8Slow(Vector<const char> string,
   decoder->Reset(string.start(), string.length());
   int chars = 0;
   while (decoder->has_more()) {
-    decoder->GetNext();
+    uc32 r = decoder->GetNext();
+    if (unibrow::SurrogatePair::MayDecompose(r)) {
+      // Should be decompose in a surrogate pair: a second character is needed.
+      chars++;
+    }
     chars++;
   }
 
@@ -3715,8 +3717,15 @@ MaybeObject* Heap::AllocateStringFromUtf8Slow(Vector<const char> string,
   decoder->Reset(string.start(), string.length());
   for (int i = 0; i < chars; i++) {
     uc32 r = decoder->GetNext();
-    if (r > kMaxSupportedChar) { r = unibrow::Utf8::kBadChar; }
-    string_result->Set(i, r);
+    if (unibrow::SurrogatePair::MayDecompose(r)) {
+      // Decompose to surrogate pair
+      unibrow::uchar hi, lo;
+      unibrow::SurrogatePair::Decompose(r, &hi, &lo);
+      string_result->Set(i++, hi);
+      string_result->Set(i, lo);
+    } else {
+      string_result->Set(i, r);
+    }
   }
   return result;
 }

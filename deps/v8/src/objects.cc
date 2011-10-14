@@ -5028,8 +5028,19 @@ int String::Utf8Length() {
       heap->isolate()->objects_string_input_buffer());
   buffer->Reset(0, this);
   int result = 0;
-  while (buffer->has_more())
-    result += unibrow::Utf8::Length(buffer->GetNext());
+  const uc32 none = -1;
+  uc32 peeked = none;
+  while (peeked != none || buffer->has_more()) {
+    uc32 ch = peeked == none ? buffer->GetNext() : peeked;
+    peeked = none;
+    if (unibrow::SurrogatePair::IsHigh(ch) && buffer->has_more()
+      && unibrow::SurrogatePair::IsLow(peeked = buffer->GetNext())) {
+      ch = unibrow::SurrogatePair::Compose(ch, peeked);
+      peeked = none;
+    }
+    result += unibrow::Utf8::Length(ch);
+  }
+
   return result;
 }
 
